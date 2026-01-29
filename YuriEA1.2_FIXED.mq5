@@ -614,9 +614,7 @@ bool FindPositionTicketByComment(ulong magic, string symbol, string comment, ulo
             {
                posTicket = positionInfo.Ticket();
                return true;
-            }
-         }
-      }
+   }
    }
    return false;
 }
@@ -1940,9 +1938,6 @@ if(psv_signal_bar_time > 0)
          return false;
    }
 }
-      }
-   }
-   
    // Check acceptance on bar 1 (just closed)
    if(dir == 1)  // BUY
    {
