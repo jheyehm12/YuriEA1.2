@@ -161,6 +161,7 @@ input bool    PSV_RequireNoReclaim = true;       // Require next candle hold bey
 input bool    PSV_EnableLogs = true;             // Enable PSV logging
 input bool    PSV_RequireRetest = false;        // DEFAULT OFF: retest not required
 input bool    PSV_EnterOnAcceptance = false;      // Optional: enter on acceptance (only if no-reclaim disabled)
+input bool    PSV_IgnoreNewSignalsWhileWaiting = true; // Ignore new signals while PSV is waiting
 
 // Logging
 input group "=== Logging ==="
@@ -171,6 +172,7 @@ input bool    InpVerboseLogs = true;
 //+------------------------------------------------------------------+
 datetime lastBarTime = 0;
 int lastSignalBarIndex = -1;
+int lastDetectedSignalBarIndex = -1000000;
 int lastSignalDirection = 0;  // 1=buy, -1=sell, 0=none
 
 // Candle validation state machine
@@ -1354,6 +1356,22 @@ bool CheckAcceptance(int shift, int direction, int lookback = 20)
 }
 
 //+------------------------------------------------------------------+
+//| Candle validation helper (closed candle only)                    |
+//+------------------------------------------------------------------+
+bool CV_PassesAtBar(const int shift, const int dir)
+{
+   if(!UseCandleValidation)
+      return true;
+   if(shift < 1)
+      return false;
+   if(!IsStrongCandle(shift, dir))
+      return false;
+   if(!CheckAcceptance(shift, dir))
+      return false;
+   return true;
+}
+
+//+------------------------------------------------------------------+
 //| Check if signal is late (strong impulse before signal)          |
 //+------------------------------------------------------------------+
 bool CheckLateSignal(datetime signalBarTime, int direction, int lookback = 10)
@@ -1947,6 +1965,9 @@ if(psv_signal_bar_time > 0)
       
       if(!PSV_IsDisplacement(1, false))
          return false;
+
+      if(!CV_PassesAtBar(1, 1))
+         return false;
       
       return true;
    }
@@ -1964,6 +1985,9 @@ if(psv_signal_bar_time > 0)
          return false;
       
       if(!PSV_IsDisplacement(1, false))
+         return false;
+
+      if(!CV_PassesAtBar(1, -1))
          return false;
       
       return true;
@@ -2385,11 +2409,11 @@ void CheckForSignals()
    
    // Check direction lock
    int currentBarIndex = bars - 1;
-   if(lastSignalBarIndex >= 0 && (currentBarIndex - lastSignalBarIndex) < Wait_Between_Signals)
+   if(lastDetectedSignalBarIndex >= 0 && (currentBarIndex - lastDetectedSignalBarIndex) < Wait_Between_Signals)
       return;
    
    // Check one signal per bar
-   if(InpOneSignalPerBar && lastSignalBarIndex == currentBarIndex)
+   if(InpOneSignalPerBar && lastDetectedSignalBarIndex == currentBarIndex)
       return;
    
    // Get filter parameters
@@ -2721,9 +2745,9 @@ void CheckForSignals()
    bool spacingBearOK = true;
    
    // Direction lock: block opposite direction within lock window
-   if(lastSignalBarIndex >= 0)
+   if(lastDetectedSignalBarIndex >= 0)
    {
-      int barsSinceSignal = currentBarIndex - lastSignalBarIndex;
+      int barsSinceSignal = currentBarIndex - lastDetectedSignalBarIndex;
       if(barsSinceSignal < Wait_Between_Signals)
       {
          spacingBullOK = false;
@@ -3203,9 +3227,19 @@ void CheckForSignals()
       }
    }
    
+   // Ignore new signals while PSV is waiting (optional)
+   if(UsePostSignalValidator && PSV_IgnoreNewSignalsWhileWaiting && (psv_state == PSV_WAIT_BUY || psv_state == PSV_WAIT_SELL))
+   {
+      if((plotBuy || plotSell) && PSV_EnableLogs)
+         Print("PSV IGNORE: new signal ignored while waiting");
+      plotBuy = false;
+      plotSell = false;
+   }
+
    // Execute trades or store pending confirmation
    if(plotBuy && InpConfirmOnClose)
    {
+      lastDetectedSignalBarIndex = currentBarIndex;
       if(UsePostSignalValidator)
       {
          // Post-Signal Validator: set WAIT state instead of executing
@@ -3288,6 +3322,7 @@ void CheckForSignals()
    }
    else if(plotSell && InpConfirmOnClose)
    {
+      lastDetectedSignalBarIndex = currentBarIndex;
       if(UsePostSignalValidator)
       {
          // Post-Signal Validator: set WAIT state instead of executing
@@ -4412,4 +4447,3 @@ void RebuildBatchesFromPositions()
       Print("Rebuilt ", ArraySize(batches), " batches from open positions");
 }
 //+------------------------------------------------------------------+
-
