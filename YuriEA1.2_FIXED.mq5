@@ -1356,19 +1356,13 @@ bool CheckAcceptance(int shift, int direction, int lookback = 20)
 }
 
 //+------------------------------------------------------------------+
-//| Candle validation helper (closed candle only)                    |
+//| Candle validation strength-only helper (closed candle only)      |
 //+------------------------------------------------------------------+
-bool CV_PassesAtBar(const int shift, const int dir)
+bool CV_StrengthOnly(const int shift, const int dir)
 {
-   if(!UseCandleValidation)
-      return true;
    if(shift < 1)
       return false;
-   if(!IsStrongCandle(shift, dir))
-      return false;
-   if(!CheckAcceptance(shift, dir))
-      return false;
-   return true;
+   return IsStrongCandle(shift, dir);
 }
 
 //+------------------------------------------------------------------+
@@ -1966,7 +1960,7 @@ if(psv_signal_bar_time > 0)
       if(!PSV_IsDisplacement(1, false))
          return false;
 
-      if(!CV_PassesAtBar(1, 1))
+      if(UseCandleValidation && !CV_StrengthOnly(1, 1))
          return false;
       
       return true;
@@ -1987,7 +1981,7 @@ if(psv_signal_bar_time > 0)
       if(!PSV_IsDisplacement(1, false))
          return false;
 
-      if(!CV_PassesAtBar(1, -1))
+      if(UseCandleValidation && !CV_StrengthOnly(1, -1))
          return false;
       
       return true;
