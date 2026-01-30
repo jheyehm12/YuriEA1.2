@@ -1891,26 +1891,40 @@ int PSV_EffectiveMaxWaitBars()
 //+------------------------------------------------------------------+
 //| Post-Signal Validator: Structure level detection                |
 //+------------------------------------------------------------------+
-double PSV_RecentSwingHigh(int fromShift, int lookback)
+int PSV_RecentSwingHighIndex(int fromShift, int lookback)
 {
    if(fromShift < 0 || fromShift + lookback - 1 >= Bars(_Symbol, _Period))
-      return 0.0;
+      return -1;
    
-   int idx = iHighest(_Symbol, _Period, MODE_HIGH, lookback, fromShift);
-   if(idx < 0)
-      return 0.0;
-   return iHigh(_Symbol, _Period, idx);
+   int lastIdx = fromShift + lookback - 1;
+   for(int i = fromShift; i <= lastIdx; i++)
+   {
+      if(i <= 0 || i + 1 >= Bars(_Symbol, _Period))
+         continue;
+      double high = iHigh(_Symbol, _Period, i);
+      if(high > iHigh(_Symbol, _Period, i - 1) && high > iHigh(_Symbol, _Period, i + 1))
+         return i;
+   }
+   
+   return iHighest(_Symbol, _Period, MODE_HIGH, lookback, fromShift);
 }
 
-double PSV_RecentSwingLow(int fromShift, int lookback)
+int PSV_RecentSwingLowIndex(int fromShift, int lookback)
 {
    if(fromShift < 0 || fromShift + lookback - 1 >= Bars(_Symbol, _Period))
-      return 0.0;
+      return -1;
    
-   int idx = iLowest(_Symbol, _Period, MODE_LOW, lookback, fromShift);
-   if(idx < 0)
-      return 0.0;
-   return iLow(_Symbol, _Period, idx);
+   int lastIdx = fromShift + lookback - 1;
+   for(int i = fromShift; i <= lastIdx; i++)
+   {
+      if(i <= 0 || i + 1 >= Bars(_Symbol, _Period))
+         continue;
+      double low = iLow(_Symbol, _Period, i);
+      if(low < iLow(_Symbol, _Period, i - 1) && low < iLow(_Symbol, _Period, i + 1))
+         return i;
+   }
+   
+   return iLowest(_Symbol, _Period, MODE_LOW, lookback, fromShift);
 }
 
 //+------------------------------------------------------------------+
@@ -1946,7 +1960,8 @@ if(psv_signal_bar_time > 0)
    // Check acceptance on bar 1 (just closed)
    if(dir == 1)  // BUY
    {
-      acceptLevel = PSV_RecentSwingHigh(2, PSV_SwingLookback);
+      int swingIdx = PSV_RecentSwingHighIndex(2, PSV_SwingLookback);
+      acceptLevel = (swingIdx >= 0) ? iHigh(_Symbol, _Period, swingIdx) : 0.0;
       double close1 = iClose(_Symbol, _Period, 1);
       bool structurePass = (acceptLevel > 0) && (close1 > acceptLevel);
       bool strengthPass = PSV_IsStrongCandle(1, 1);
@@ -1956,6 +1971,13 @@ if(psv_signal_bar_time > 0)
 
       if(PSV_EnableLogs)
       {
+         if(swingIdx >= 0)
+         {
+            Print(StringFormat("PSV SWING HIGH | shift=%d time=%s price=%.5f",
+                               swingIdx,
+                               TimeToString(iTime(_Symbol, _Period, swingIdx), TIME_DATE|TIME_MINUTES),
+                               acceptLevel));
+         }
          Print(StringFormat("PSV ACCEPT CHECK BUY | swingHigh=%.5f close1=%.5f | structure=%s strength=%s displacement=%s candle=%s | acceptPass=%s",
                             acceptLevel, close1,
                             (structurePass ? "YES" : "NO"),
@@ -1972,7 +1994,8 @@ if(psv_signal_bar_time > 0)
    }
    else  // SELL
    {
-      acceptLevel = PSV_RecentSwingLow(2, PSV_SwingLookback);
+      int swingIdx = PSV_RecentSwingLowIndex(2, PSV_SwingLookback);
+      acceptLevel = (swingIdx >= 0) ? iLow(_Symbol, _Period, swingIdx) : 0.0;
       double close1 = iClose(_Symbol, _Period, 1);
       bool structurePass = (acceptLevel > 0) && (close1 < acceptLevel);
       bool strengthPass = PSV_IsStrongCandle(1, -1);
@@ -1982,6 +2005,13 @@ if(psv_signal_bar_time > 0)
 
       if(PSV_EnableLogs)
       {
+         if(swingIdx >= 0)
+         {
+            Print(StringFormat("PSV SWING LOW | shift=%d time=%s price=%.5f",
+                               swingIdx,
+                               TimeToString(iTime(_Symbol, _Period, swingIdx), TIME_DATE|TIME_MINUTES),
+                               acceptLevel));
+         }
          Print(StringFormat("PSV ACCEPT CHECK SELL | swingLow=%.5f close1=%.5f | structure=%s strength=%s displacement=%s candle=%s | acceptPass=%s",
                             acceptLevel, close1,
                             (structurePass ? "YES" : "NO"),
