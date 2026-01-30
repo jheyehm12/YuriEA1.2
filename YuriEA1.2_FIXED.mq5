@@ -3177,8 +3177,9 @@ void CheckForSignals()
       double spreadPoints = GetSpreadPoints();
       
       // Print diagnostic summary
-      string diag = StringFormat("BAR[1]=%s | plotBuy=%s plotSell=%s | filteredBull=%s filteredBear=%s | ",
+      string diag = StringFormat("BAR[1]=%s | rawBull=%s rawBear=%s | plotBuy=%s plotSell=%s | filteredBull=%s filteredBear=%s | ",
                                  TimeToString(bar1Time, TIME_DATE|TIME_MINUTES),
+                                 (rawBullSignal ? "YES" : "NO"), (rawBearSignal ? "YES" : "NO"),
                                  (plotBuy ? "YES" : "NO"), (plotSell ? "YES" : "NO"),
                                  (filteredBullSignal ? "YES" : "NO"), (filteredBearSignal ? "YES" : "NO"));
       
