@@ -614,9 +614,7 @@ bool FindPositionTicketByComment(ulong magic, string symbol, string comment, ulo
             {
                posTicket = positionInfo.Ticket();
                return true;
-            }
-         }
-      }
+   }
    }
    return false;
 }
