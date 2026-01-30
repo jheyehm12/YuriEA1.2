@@ -72,6 +72,13 @@ input double  TP3_Trail_ATR_Multiplier = 1.5;     // ATR multiplier for TP3 trai
 input double  Profit_Lock_Buffer_Multiplier = 0.5; // Profit lock buffer multiplier (based on spread)
 input int     Profit_Lock_Buffer_Points = 0;        // Additional profit lock buffer in points
 
+// Management (NEW)
+input group "=== Management (NEW) ==="
+input bool   MGT_BE_After_TP1_CloseConfirm = true;   // require a closed candle beyond TP1 before BE/lock
+input bool   MGT_BE_Require_FollowThrough = true;    // require next closed candle to progress after acceptance
+input int    MGT_BE_MinBarsAfterEntry = 1;           // minimum closed bars after entry before BE/lock allowed
+input bool   MGT_Lock_TP3_OnlyAfter_TP2 = true;      // TP3 SL must not move to BE/lock until TP2 is closed
+
 // Invalidation Logic
 input group "=== Trade Invalidation Settings ==="
 input bool    UseInvalidation = true;              // Enable trade invalidation
@@ -229,6 +236,7 @@ struct BatchInfo
    ulong ticket1, ticket2, ticket3;  // Position tickets (may change, use comment for reliability)
    bool movedToBE;            // Flag: TP1 closed, moved to breakeven
    bool movedToTP2;           // Flag: TP2 closed, TP3 is now a runner (SL remains at breakeven)
+   bool tp1Confirmed;         // Flag: TP1 confirmed by closed candle
    bool invalidationTriggered; // Flag: invalidation condition met (was invalidationTriggered)
 };
 
@@ -700,7 +708,7 @@ bool ClosePositionByComment(string comment)
 //| Helper: Encode invalidation level in comment                     |
 //| Format: YURI#BatchID#TP1#InvPts where InvPts is points offset   |
 //+------------------------------------------------------------------+
-string EncodeCommentWithInvLevel(int batchId, string tp, double entryPrice, double invalidateLevel)
+string EncodeCommentWithInvLevel(int batchId, string tp, double entryPrice, double invalidateLevel, datetime entryBarTime)
 {
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    if(point <= 0)
@@ -708,7 +716,10 @@ string EncodeCommentWithInvLevel(int batchId, string tp, double entryPrice, doub
    
    // Store invalidation level as points offset from entry (compact integer)
    int invPts = (int)MathRound((invalidateLevel - entryPrice) / point);
-   return "YURI#" + IntegerToString(batchId) + "#" + tp + "#" + IntegerToString(invPts);
+   string comment = "YURI#" + IntegerToString(batchId) + "#" + tp + "#" + IntegerToString(invPts);
+   if(entryBarTime > 0)
+      comment += "#entry=" + IntegerToString((int)entryBarTime);
+   return comment;
 }
 
 //+------------------------------------------------------------------+
@@ -727,13 +738,30 @@ double DecodeInvLevelFromComment(string comment, double entryPrice)
    pos = StringFind(comment, "#", pos + 1);
    if(pos < 0) return 0;  // No invalidation level stored
    
-   string invPtsStr = StringSubstr(comment, pos + 1);
+   int nextPos = StringFind(comment, "#", pos + 1);
+   string invPtsStr = (nextPos > 0) ? StringSubstr(comment, pos + 1, nextPos - pos - 1) : StringSubstr(comment, pos + 1);
    int invPts = (int)StringToInteger(invPtsStr);
    
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
    if(point <= 0) return 0;
    
    return entryPrice + invPts * point;
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Decode entry time from comment                           |
+//| Returns: entryBarTime if found, 0 if not found                   |
+//+------------------------------------------------------------------+
+datetime DecodeEntryTimeFromComment(string comment)
+{
+   int pos = StringFind(comment, "entry=");
+   if(pos < 0)
+      return 0;
+   string entryStr = StringSubstr(comment, pos + 6);
+   int hashPos = StringFind(entryStr, "#", 0);
+   if(hashPos >= 0)
+      entryStr = StringSubstr(entryStr, 0, hashPos);
+   return (datetime)StringToInteger(entryStr);
 }
 
 //+------------------------------------------------------------------+
@@ -762,6 +790,48 @@ bool IsGapOK()
    
    double gapPoints = MathAbs(open0 - close1) / point;
    return (gapPoints <= Gap_Filter_Threshold);
+}
+
+//+------------------------------------------------------------------+
+//| Management: TP confirmed by closed candle                         |
+//+------------------------------------------------------------------+
+bool MGT_TPConfirmedByClose(double tpPrice, int dir)
+{
+   double close1 = iClose(_Symbol, _Period, 1);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double buffer = MathMax(GetSpreadPoints() * ConfirmBuffer_SpreadFactor * point, point);
+   if(dir == 1)
+      return (close1 >= tpPrice + buffer);
+   return (close1 <= tpPrice - buffer);
+}
+
+//+------------------------------------------------------------------+
+//| Management: Follow-through check                                 |
+//+------------------------------------------------------------------+
+bool MGT_FollowThroughOK(int dir)
+{
+   double close1 = iClose(_Symbol, _Period, 1);
+   double close2 = iClose(_Symbol, _Period, 2);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double buffer = MathMax(GetSpreadPoints() * ConfirmBuffer_SpreadFactor * point, point);
+   if(dir == 1)
+      return (close1 > close2 + buffer);
+   return (close1 < close2 - buffer);
+}
+
+//+------------------------------------------------------------------+
+//| Management: Min bars after entry check                            |
+//+------------------------------------------------------------------+
+bool MGT_MinBarsAfterEntryOK(string comment)
+{
+   datetime entryTime = DecodeEntryTimeFromComment(comment);
+   if(entryTime <= 0)
+      return true;  // fail-open for legacy comments
+   int shift = iBarShift(_Symbol, _Period, entryTime, true);
+   if(shift < 0)
+      return false;
+   int closedBarsSinceEntry = MathMax(0, shift - 1);
+   return (closedBarsSinceEntry >= MGT_BE_MinBarsAfterEntry);
 }
 
 //+------------------------------------------------------------------+
@@ -3666,9 +3736,10 @@ void ExecuteBuySignal()
    // Comments include invalidation level for reconstruction after restart
    ulong ticket1 = 0, ticket2 = 0, ticket3 = 0;
    bool allOK = true;
-   string comment1 = EncodeCommentWithInvLevel(nextBatchId, "TP1", ask, invalidateLevel);
-   string comment2 = EncodeCommentWithInvLevel(nextBatchId, "TP2", ask, invalidateLevel);
-   string comment3 = EncodeCommentWithInvLevel(nextBatchId, "TP3", ask, invalidateLevel);
+   datetime entryBarTime = iTime(_Symbol, _Period, 0);
+   string comment1 = EncodeCommentWithInvLevel(nextBatchId, "TP1", ask, invalidateLevel, entryBarTime);
+   string comment2 = EncodeCommentWithInvLevel(nextBatchId, "TP2", ask, invalidateLevel, entryBarTime);
+   string comment3 = EncodeCommentWithInvLevel(nextBatchId, "TP3", ask, invalidateLevel, entryBarTime);
    
    // Place TP1
    if(lot1 > 0)
@@ -3771,6 +3842,7 @@ void ExecuteBuySignal()
       batch.ticket3 = ticket3;
       batch.movedToBE = false;
       batch.movedToTP2 = false;
+      batch.tp1Confirmed = false;
       batch.invalidationTriggered = false;
       batch.batchId = nextBatchId++;
       
@@ -3893,9 +3965,10 @@ void ExecuteSellSignal()
    // Comments include invalidation level for reconstruction after restart
    ulong ticket1 = 0, ticket2 = 0, ticket3 = 0;
    bool allOK = true;
-   string comment1 = EncodeCommentWithInvLevel(nextBatchId, "TP1", bid, invalidateLevel);
-   string comment2 = EncodeCommentWithInvLevel(nextBatchId, "TP2", bid, invalidateLevel);
-   string comment3 = EncodeCommentWithInvLevel(nextBatchId, "TP3", bid, invalidateLevel);
+   datetime entryBarTime = iTime(_Symbol, _Period, 0);
+   string comment1 = EncodeCommentWithInvLevel(nextBatchId, "TP1", bid, invalidateLevel, entryBarTime);
+   string comment2 = EncodeCommentWithInvLevel(nextBatchId, "TP2", bid, invalidateLevel, entryBarTime);
+   string comment3 = EncodeCommentWithInvLevel(nextBatchId, "TP3", bid, invalidateLevel, entryBarTime);
    
    // Place TP1
    if(lot1 > 0)
@@ -3998,6 +4071,7 @@ void ExecuteSellSignal()
       batch.ticket3 = ticket3;
       batch.movedToBE = false;
       batch.movedToTP2 = false;
+      batch.tp1Confirmed = false;
       batch.invalidationTriggered = false;
       batch.batchId = nextBatchId++;
       
@@ -4041,9 +4115,17 @@ void ManageTrades()
 {
    double spreadPoints = GetSpreadPoints();
    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   double close1 = iClose(_Symbol, _Period, 1);
+   double close2 = iClose(_Symbol, _Period, 2);
    
    for(int i = 0; i < ArraySize(batches); i++)
    {
+      if(!batches[i].tp1Confirmed && MGT_TPConfirmedByClose(batches[i].tp1, batches[i].direction))
+         batches[i].tp1Confirmed = true;
+
+      bool followThroughOK = (!MGT_BE_Require_FollowThrough) || MGT_FollowThroughOK(batches[i].direction);
+      bool tp1Confirmed = (!MGT_BE_After_TP1_CloseConfirm) || batches[i].tp1Confirmed;
+
       // Check TP1 closed
       if(!batches[i].movedToBE)
       {
@@ -4054,25 +4136,29 @@ void ManageTrades()
             tp1Closed = !HasPositionByComment(comment1);
          }
          
-         if(tp1Closed && (batches[i].ticket2 > 0 || batches[i].ticket3 > 0))
+         if(tp1Closed && tp1Confirmed && followThroughOK && (batches[i].ticket2 > 0 || batches[i].ticket3 > 0))
          {
+            bool beMoved = false;
             // Move TP2 and TP3 to breakeven
             // BE buffer accounts for spread to ensure profit after costs
             // BUY: SL triggered by Bid, so BE = entry + buffer (ensures profit when Bid hits)
             // SELL: SL triggered by Ask, so BE = entry - buffer (ensures profit when Ask hits)
             double beBuffer = MathMax(Breakeven_Buffer_Points * point, spreadPoints * Breakeven_Buffer_Multiplier * point);
+            double lockBuffer = MathMax(Profit_Lock_Buffer_Points * point, spreadPoints * Profit_Lock_Buffer_Multiplier * point);
+            double targetBuffer = MathMax(beBuffer, lockBuffer);
+            string moveReason = (targetBuffer > beBuffer ? "LOCK" : "BE");
             double newSL = batches[i].entryPrice;
             
             if(batches[i].direction == 1)  // Buy: BE above entry to ensure profit (SL triggered by Bid)
             {
-               newSL = batches[i].entryPrice + beBuffer;
+               newSL = batches[i].entryPrice + targetBuffer;
                // Safety: never move BUY SL down (must be >= initial SL)
                if(newSL < batches[i].slInitial)
                   newSL = batches[i].slInitial;
             }
             else  // Sell: BE below entry to ensure profit (SL triggered by Ask)
             {
-               newSL = batches[i].entryPrice - beBuffer;
+               newSL = batches[i].entryPrice - targetBuffer;
                // Safety: never move SELL SL up (must be <= initial SL)
                if(newSL > batches[i].slInitial)
                   newSL = batches[i].slInitial;
@@ -4088,13 +4174,16 @@ void ManageTrades()
                   double currentSL = positionInfo.StopLoss();
                   // Safety: never worsen SL (BUY: newSL >= currentSL, SELL: newSL <= currentSL)
                   bool slOK = (batches[i].direction == 1) ? (newSL >= currentSL) : (newSL <= currentSL);
-                  if(slOK)
+                  if(slOK && MGT_MinBarsAfterEntryOK(comment2))
                   {
                      if(trade.PositionModify(ticket2, newSL, batches[i].tp2))
                      {
                         batches[i].ticket2 = ticket2;
+                        beMoved = true;
                         if(InpVerboseLogs)
-                           Print("TP2 moved to breakeven. Batch: ", batches[i].batchId, " New SL: ", newSL, " Old SL: ", currentSL);
+                           Print("MGMT SL MOVE | ticket=", ticket2, " leg=TP2 | reason=", moveReason, " | oldSL=", currentSL, " newSL=", newSL,
+                                 " | close1=", close1, " tp1Confirmed=", (batches[i].tp1Confirmed ? "YES" : "NO"),
+                                 " followThrough=", (followThroughOK ? "YES" : "NO"));
                      }
                      else if(InpVerboseLogs)
                      {
@@ -4128,15 +4217,18 @@ void ManageTrades()
                      slOK = false;  // Block the modification
                   }
                   
-                  if(slOK)
+                  if(slOK && MGT_MinBarsAfterEntryOK(comment3))
                   {
-                     if(Move_TP3_To_BE_After_TP1)
+                     if(Move_TP3_To_BE_After_TP1 && !MGT_Lock_TP3_OnlyAfter_TP2)
                      {
                         if(trade.PositionModify(ticket3, newSL, batches[i].tp3))
                         {
                            batches[i].ticket3 = ticket3;
+                           beMoved = true;
                            if(InpVerboseLogs)
-                              Print("TP3 moved to breakeven. Batch: ", batches[i].batchId, " New SL: ", newSL, " Old SL: ", currentSL);
+                              Print("MGMT SL MOVE | ticket=", ticket3, " leg=TP3 | reason=", moveReason, " | oldSL=", currentSL, " newSL=", newSL,
+                                    " | close1=", close1, " tp1Confirmed=", (batches[i].tp1Confirmed ? "YES" : "NO"),
+                                    " followThrough=", (followThroughOK ? "YES" : "NO"));
                         }
                         else if(InpVerboseLogs)
                         {
@@ -4156,7 +4248,8 @@ void ManageTrades()
                }
             }
             
-            batches[i].movedToBE = true;
+            if(beMoved)
+               batches[i].movedToBE = true;
          }
       }
       
@@ -4172,6 +4265,53 @@ void ManageTrades()
          
          if(tp2Closed && batches[i].ticket3 > 0)
          {
+            if(MGT_Lock_TP3_OnlyAfter_TP2)
+            {
+               string comment3 = "YURI#" + IntegerToString(batches[i].batchId) + "#TP3";
+               ulong ticket3 = 0;
+               if(FindPositionTicketByComment(MagicNumber, _Symbol, comment3, ticket3))
+               {
+                  if(positionInfo.SelectByTicket(ticket3))
+                  {
+                     double currentSL = positionInfo.StopLoss();
+                     double beBuffer = MathMax(Breakeven_Buffer_Points * point, spreadPoints * Breakeven_Buffer_Multiplier * point);
+                     double lockBuffer = MathMax(Profit_Lock_Buffer_Points * point, spreadPoints * Profit_Lock_Buffer_Multiplier * point);
+                     double targetBuffer = MathMax(beBuffer, lockBuffer);
+                     string moveReason = (targetBuffer > beBuffer ? "LOCK" : "BE");
+                     double newSL = batches[i].entryPrice;
+                     if(batches[i].direction == 1)
+                     {
+                        newSL = batches[i].entryPrice + targetBuffer;
+                        if(newSL < batches[i].slInitial)
+                           newSL = batches[i].slInitial;
+                     }
+                     else
+                     {
+                        newSL = batches[i].entryPrice - targetBuffer;
+                        if(newSL > batches[i].slInitial)
+                           newSL = batches[i].slInitial;
+                     }
+
+                     bool slOK = (batches[i].direction == 1) ? (newSL >= currentSL) : (newSL <= currentSL);
+                     double tolerance = MathMax(point * 10, MathAbs(batches[i].tp2) * 0.001);
+                     if(IsTP3RunnerProtectionBlocked(comment3, newSL, batches[i].tp2, tolerance))
+                        slOK = false;
+
+                     if(slOK && tp1Confirmed && followThroughOK && MGT_MinBarsAfterEntryOK(comment3))
+                     {
+                        if(trade.PositionModify(ticket3, newSL, batches[i].tp3))
+                        {
+                           batches[i].ticket3 = ticket3;
+                           if(InpVerboseLogs)
+                              Print("MGMT SL MOVE | ticket=", ticket3, " leg=TP3 | reason=", moveReason, " | oldSL=", currentSL, " newSL=", newSL,
+                                    " | close1=", close1, " tp1Confirmed=", (batches[i].tp1Confirmed ? "YES" : "NO"),
+                                    " followThrough=", (followThroughOK ? "YES" : "NO"));
+                        }
+                     }
+                  }
+               }
+            }
+
             // TP3 runner: do not lock SL to TP2; keep room for continuation
             // TP3 remains at breakeven level (set when TP1 closed) to allow runner behavior
             batches[i].movedToTP2 = true;
@@ -4215,14 +4355,14 @@ void ManageTrades()
                   
                   if(batches[i].direction == 1)  // BUY
                   {
-                     proposedSL = SymbolInfoDouble(_Symbol, SYMBOL_BID) - trailDistance;
+                     proposedSL = close1 - trailDistance;
                      // Conditions: proposedSL > currentSL AND proposedSL >= breakevenLevel
                      if(proposedSL > currentSL && proposedSL >= breakevenLevel)
                         shouldModify = true;
                   }
                   else  // SELL
                   {
-                     proposedSL = SymbolInfoDouble(_Symbol, SYMBOL_ASK) + trailDistance;
+                     proposedSL = close1 + trailDistance;
                      // Conditions: proposedSL < currentSL AND proposedSL <= breakevenLevel
                      if(proposedSL < currentSL && proposedSL <= breakevenLevel)
                         shouldModify = true;
@@ -4235,7 +4375,9 @@ void ManageTrades()
                      {
                         batches[i].ticket3 = ticket3;
                         if(InpVerboseLogs)
-                           Print("TP3 trailing activated. Batch: ", batches[i].batchId, " New SL: ", proposedSL, " Old SL: ", currentSL);
+                           Print("MGMT SL MOVE | ticket=", ticket3, " leg=TP3 | reason=TRAIL | oldSL=", currentSL, " newSL=", proposedSL,
+                                 " | close1=", close1, " tp1Confirmed=", (batches[i].tp1Confirmed ? "YES" : "NO"),
+                                 " followThrough=", (followThroughOK ? "YES" : "NO"));
                      }
                      // Fail silently if broker rejects (no forced close, no error spam)
                   }
@@ -4421,6 +4563,7 @@ void RebuildBatchesFromPositions()
                      batch.ticket1 = 0;
                      batch.ticket2 = 0;
                      batch.ticket3 = 0;
+                     batch.tp1Confirmed = false;
                      batch.invalidationTriggered = false;
                      
                      // Determine which TP this is and decode invalidation level
