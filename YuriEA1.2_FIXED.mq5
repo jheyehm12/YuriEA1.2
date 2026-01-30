@@ -1945,43 +1945,53 @@ if(psv_signal_bar_time > 0)
    if(dir == 1)  // BUY
    {
       acceptLevel = PSV_RecentSwingHigh(2, PSV_SwingLookback);
-      if(acceptLevel <= 0)
-         return false;
-      
       double close1 = iClose(_Symbol, _Period, 1);
-      if(close1 <= acceptLevel)
-         return false;
-      
-      if(!PSV_IsStrongCandle(1, 1))
-         return false;
-      
-      if(!PSV_IsDisplacement(1, false))
+      bool structurePass = (acceptLevel > 0) && (close1 > acceptLevel);
+      bool strengthPass = PSV_IsStrongCandle(1, 1);
+      bool displacementPass = PSV_IsDisplacement(1, false);
+      bool candlePass = (!UseCandleValidation) || CV_StrengthOnly(1, 1);
+      bool acceptPass = structurePass && strengthPass && displacementPass && candlePass;
+
+      if(PSV_EnableLogs)
+      {
+         Print(StringFormat("PSV ACCEPT CHECK BUY | swingHigh=%.5f close1=%.5f | structure=%s strength=%s displacement=%s candle=%s | acceptPass=%s",
+                            acceptLevel, close1,
+                            (structurePass ? "YES" : "NO"),
+                            (strengthPass ? "YES" : "NO"),
+                            (displacementPass ? "YES" : "NO"),
+                            (candlePass ? "YES" : "NO"),
+                            (acceptPass ? "YES" : "NO")));
+      }
+
+      if(!acceptPass)
          return false;
 
-      if(UseCandleValidation && !CV_StrengthOnly(1, 1))
-         return false;
-      
       return true;
    }
    else  // SELL
    {
       acceptLevel = PSV_RecentSwingLow(2, PSV_SwingLookback);
-      if(acceptLevel <= 0)
-         return false;
-      
       double close1 = iClose(_Symbol, _Period, 1);
-      if(close1 >= acceptLevel)
-         return false;
-      
-      if(!PSV_IsStrongCandle(1, -1))
-         return false;
-      
-      if(!PSV_IsDisplacement(1, false))
+      bool structurePass = (acceptLevel > 0) && (close1 < acceptLevel);
+      bool strengthPass = PSV_IsStrongCandle(1, -1);
+      bool displacementPass = PSV_IsDisplacement(1, false);
+      bool candlePass = (!UseCandleValidation) || CV_StrengthOnly(1, -1);
+      bool acceptPass = structurePass && strengthPass && displacementPass && candlePass;
+
+      if(PSV_EnableLogs)
+      {
+         Print(StringFormat("PSV ACCEPT CHECK SELL | swingLow=%.5f close1=%.5f | structure=%s strength=%s displacement=%s candle=%s | acceptPass=%s",
+                            acceptLevel, close1,
+                            (structurePass ? "YES" : "NO"),
+                            (strengthPass ? "YES" : "NO"),
+                            (displacementPass ? "YES" : "NO"),
+                            (candlePass ? "YES" : "NO"),
+                            (acceptPass ? "YES" : "NO")));
+      }
+
+      if(!acceptPass)
          return false;
 
-      if(UseCandleValidation && !CV_StrengthOnly(1, -1))
-         return false;
-      
       return true;
    }
 }
