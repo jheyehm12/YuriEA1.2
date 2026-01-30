@@ -160,6 +160,7 @@ input double  PSV_FreshTouchATRFrac = 0.10;      // Tolerance for "touch" around
 input bool    PSV_RequireNoReclaim = true;       // Require next candle hold beyond level
 input bool    PSV_EnableLogs = true;             // Enable PSV logging
 input bool    PSV_RequireRetest = false;        // DEFAULT OFF: retest not required
+input bool    PSV_RequireFreshOrigin = false;    // DEFAULT OFF: require fresh origin only when retest is enabled
 input bool    PSV_EnterOnAcceptance = false;      // Optional: enter on acceptance (only if no-reclaim disabled)
 input bool    PSV_IgnoreNewSignalsWhileWaiting = true; // Ignore new signals while PSV is waiting
 
@@ -2284,21 +2285,24 @@ if(PSV_CheckRetest(1, psv_fresh_low, psv_fresh_high))
          {
             psv_accept_level = acceptLevel;
             
-            // Find fresh origin zone
-            double freshLow = 0.0, freshHigh = 0.0;
-            if(!PSV_FindFreshOriginZone(1, freshLow, freshHigh))
+            if(PSV_RequireFreshOrigin && PSV_RequireRetest)
             {
-               if(PSV_EnableLogs)
-                  Print("PSV CANCEL reason=not fresh BUY");
-               psv_state = PSV_IDLE;
-               psv_signal_bar_time = 0;
-               psv_waited = 0;
-               PSV_ResetStructure();
-               return;
+               // Find fresh origin zone
+               double freshLow = 0.0, freshHigh = 0.0;
+               if(!PSV_FindFreshOriginZone(1, freshLow, freshHigh))
+               {
+                  if(PSV_EnableLogs)
+                     Print("PSV CANCEL reason=not fresh BUY");
+                  psv_state = PSV_IDLE;
+                  psv_signal_bar_time = 0;
+                  psv_waited = 0;
+                  PSV_ResetStructure();
+                  return;
+               }
+               
+               psv_fresh_low = freshLow;
+               psv_fresh_high = freshHigh;
             }
-            
-            psv_fresh_low = freshLow;
-            psv_fresh_high = freshHigh;
 
             // Optional: enter immediately on acceptance (only if no-reclaim is disabled)
             if(PSV_EnterOnAcceptance && !PSV_RequireNoReclaim)
@@ -2420,21 +2424,24 @@ if(PSV_CheckRetest(-1, psv_fresh_low, psv_fresh_high))
          {
             psv_accept_level = acceptLevel;
             
-            // Find fresh origin zone
-            double freshLow = 0.0, freshHigh = 0.0;
-            if(!PSV_FindFreshOriginZone(-1, freshLow, freshHigh))
+            if(PSV_RequireFreshOrigin && PSV_RequireRetest)
             {
-               if(PSV_EnableLogs)
-                  Print("PSV CANCEL reason=not fresh SELL");
-               psv_state = PSV_IDLE;
-               psv_signal_bar_time = 0;
-               psv_waited = 0;
-               PSV_ResetStructure();
-               return;
+               // Find fresh origin zone
+               double freshLow = 0.0, freshHigh = 0.0;
+               if(!PSV_FindFreshOriginZone(-1, freshLow, freshHigh))
+               {
+                  if(PSV_EnableLogs)
+                     Print("PSV CANCEL reason=not fresh SELL");
+                  psv_state = PSV_IDLE;
+                  psv_signal_bar_time = 0;
+                  psv_waited = 0;
+                  PSV_ResetStructure();
+                  return;
+               }
+               
+               psv_fresh_low = freshLow;
+               psv_fresh_high = freshHigh;
             }
-            
-            psv_fresh_low = freshLow;
-            psv_fresh_high = freshHigh;
 
             // Optional: enter immediately on acceptance (only if no-reclaim is disabled)
             if(PSV_EnterOnAcceptance && !PSV_RequireNoReclaim)
