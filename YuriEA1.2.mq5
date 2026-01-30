@@ -1368,13 +1368,13 @@ bool CV_StrengthOnly(const int shift, const int dir)
 //+------------------------------------------------------------------+
 //| Check if signal is late (strong impulse before signal)          |
 //+------------------------------------------------------------------+
-bool CheckLateSignal(datetime signalBarTime, int direction, int lookback = 10)
+bool CheckLateSignal(datetime signalBarTimeInput, int direction, int lookback = 10)
 {
    // Find signal bar index from datetime
    int signalBarIdx = -1;
    for(int i = 1; i < Bars(_Symbol, _Period); i++)
    {
-      if(iTime(_Symbol, _Period, i) == signalBarTime)
+      if(iTime(_Symbol, _Period, i) == signalBarTimeInput)
       {
          signalBarIdx = i;
          break;
@@ -1417,7 +1417,7 @@ bool CheckLateSignal(datetime signalBarTime, int direction, int lookback = 10)
 //+------------------------------------------------------------------+
 //| Validate buy signal                                              |
 //+------------------------------------------------------------------+
-bool ValidateBuy(datetime signalBarTime, int currentBarIdx)
+bool ValidateBuy(datetime signalBarTimeInput, int currentBarIdx)
 {
    if(!UseCandleValidation)
       return true;
@@ -1426,7 +1426,7 @@ bool ValidateBuy(datetime signalBarTime, int currentBarIdx)
    int signalBarIdx = -1;
    for(int i = 1; i < Bars(_Symbol, _Period); i++)
    {
-      if(iTime(_Symbol, _Period, i) == signalBarTime)
+      if(iTime(_Symbol, _Period, i) == signalBarTimeInput)
       {
          signalBarIdx = i;
          break;
@@ -1462,7 +1462,7 @@ bool ValidateBuy(datetime signalBarTime, int currentBarIdx)
    }
    
    // Check late signal filter
-   if(CheckLateSignal(signalBarTime, 1))
+   if(CheckLateSignal(signalBarTimeInput, 1))
    {
       if(InpVerboseLogs)
          Print("CANCEL: BUY signal - late signal (strong impulse before signal, no new strong candle after)");
@@ -1508,7 +1508,7 @@ bool ValidateBuy(datetime signalBarTime, int currentBarIdx)
 //+------------------------------------------------------------------+
 //| Validate sell signal                                             |
 //+------------------------------------------------------------------+
-bool ValidateSell(datetime signalBarTime, int currentBarIdx)
+bool ValidateSell(datetime signalBarTimeInput, int currentBarIdx)
 {
    if(!UseCandleValidation)
       return true;
@@ -1517,7 +1517,7 @@ bool ValidateSell(datetime signalBarTime, int currentBarIdx)
    int signalBarIdx = -1;
    for(int i = 1; i < Bars(_Symbol, _Period); i++)
    {
-      if(iTime(_Symbol, _Period, i) == signalBarTime)
+      if(iTime(_Symbol, _Period, i) == signalBarTimeInput)
       {
          signalBarIdx = i;
          break;
@@ -1553,7 +1553,7 @@ bool ValidateSell(datetime signalBarTime, int currentBarIdx)
    }
    
    // Check late signal filter
-   if(CheckLateSignal(signalBarTime, -1))
+   if(CheckLateSignal(signalBarTimeInput, -1))
    {
       if(InpVerboseLogs)
          Print("CANCEL: SELL signal - late signal (strong impulse before signal, no new strong candle after)");
@@ -1804,7 +1804,10 @@ double PSV_AvgBody(int fromShift, int period)
 bool PSV_IsDisplacement(int shift, bool isLateSignal = false)
 {
    // NOTE: isLateSignal is kept for backward compatibility but late handling is binary in PSV_CheckAcceptance.
-   (void)isLateSignal;
+   if(isLateSignal)
+   {
+      // no-op: parameter preserved for compatibility
+   }
    if(shift < 1 || shift >= Bars(_Symbol, _Period))
       return false;
 
