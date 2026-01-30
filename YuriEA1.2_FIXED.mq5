@@ -193,6 +193,9 @@ PSV_STATE psv_state = PSV_IDLE;
 datetime psv_signal_bar_time = 0;
 int psv_waited = 0;
 double psv_accept_level = 0.0;
+double psv_structure_level = 0.0;
+datetime psv_structure_time = 0;
+int psv_structure_shift = -1;
 double psv_fresh_low = 0.0;
 double psv_fresh_high = 0.0;
 int psv_dir = 0;
@@ -311,6 +314,7 @@ int OnInit()
    psv_signal_bar_time = 0;
    psv_waited = 0;
    psv_accept_level = 0.0;
+   PSV_ResetStructure();
    psv_fresh_low = 0.0;
    psv_fresh_high = 0.0;
    psv_dir = 0;
@@ -1364,6 +1368,16 @@ bool CV_StrengthOnly(const int shift, const int dir)
 }
 
 //+------------------------------------------------------------------+
+//| Post-Signal Validator: Reset stored structure level              |
+//+------------------------------------------------------------------+
+void PSV_ResetStructure()
+{
+   psv_structure_level = 0.0;
+   psv_structure_time = 0;
+   psv_structure_shift = -1;
+}
+
+//+------------------------------------------------------------------+
 //| Check if signal is late (strong impulse before signal)          |
 //+------------------------------------------------------------------+
 bool CheckLateSignal(datetime signalBarTimeInput, int direction, int lookback = 10)
@@ -1958,8 +1972,8 @@ if(psv_signal_bar_time > 0)
    // Check acceptance on bar 1 (just closed)
    if(dir == 1)  // BUY
    {
-      int swingIdx = PSV_RecentSwingHighIndex(2, PSV_SwingLookback);
-      acceptLevel = (swingIdx >= 0) ? iHigh(_Symbol, _Period, swingIdx) : 0.0;
+      int swingIdx = psv_structure_shift;
+      acceptLevel = psv_structure_level;
       double close1 = iClose(_Symbol, _Period, 1);
       bool structurePass = (acceptLevel > 0) && (close1 > acceptLevel);
       bool strengthPass = PSV_IsStrongCandle(1, 1);
@@ -1992,8 +2006,8 @@ if(psv_signal_bar_time > 0)
    }
    else  // SELL
    {
-      int swingIdx = PSV_RecentSwingLowIndex(2, PSV_SwingLookback);
-      acceptLevel = (swingIdx >= 0) ? iLow(_Symbol, _Period, swingIdx) : 0.0;
+      int swingIdx = psv_structure_shift;
+      acceptLevel = psv_structure_level;
       double close1 = iClose(_Symbol, _Period, 1);
       bool structurePass = (acceptLevel > 0) && (close1 < acceptLevel);
       bool strengthPass = PSV_IsStrongCandle(1, -1);
@@ -2187,6 +2201,7 @@ void PSV_CheckValidation()
          psv_signal_bar_time = 0;
          psv_waited = 0;
          psv_pending_hold_check = false;
+         PSV_ResetStructure();
          return;
       }
       
@@ -2199,6 +2214,7 @@ void PSV_CheckValidation()
          psv_signal_bar_time = 0;
          psv_waited = 0;
          psv_pending_hold_check = false;
+         PSV_ResetStructure();
          return;
       }
       
@@ -2211,6 +2227,7 @@ void PSV_CheckValidation()
          psv_signal_bar_time = 0;
          psv_waited = 0;
          psv_pending_hold_check = false;
+         PSV_ResetStructure();
          return;
       }
       
@@ -2225,6 +2242,7 @@ void PSV_CheckValidation()
             psv_signal_bar_time = 0;
             psv_waited = 0;
             psv_pending_hold_check = false;
+            PSV_ResetStructure();
             return;
          }
          
@@ -2238,6 +2256,7 @@ if(!PSV_RequireRetest)
    psv_signal_bar_time = 0;
    psv_waited = 0;
    psv_pending_hold_check = false;
+   PSV_ResetStructure();
    ExecuteBuySignal();
    return;
 }
@@ -2252,6 +2271,7 @@ if(PSV_CheckRetest(1, psv_fresh_low, psv_fresh_high))
    psv_signal_bar_time = 0;
    psv_waited = 0;
    psv_pending_hold_check = false;
+   PSV_ResetStructure();
    ExecuteBuySignal();
    return;
 }}
@@ -2273,6 +2293,7 @@ if(PSV_CheckRetest(1, psv_fresh_low, psv_fresh_high))
                psv_state = PSV_IDLE;
                psv_signal_bar_time = 0;
                psv_waited = 0;
+               PSV_ResetStructure();
                return;
             }
             
@@ -2288,6 +2309,7 @@ if(PSV_CheckRetest(1, psv_fresh_low, psv_fresh_high))
                psv_signal_bar_time = 0;
                psv_waited = 0;
                psv_pending_hold_check = false;
+               PSV_ResetStructure();
                ExecuteBuySignal();
                return;
             }
@@ -2315,6 +2337,7 @@ if(PSV_CheckRetest(1, psv_fresh_low, psv_fresh_high))
          psv_signal_bar_time = 0;
          psv_waited = 0;
          psv_pending_hold_check = false;
+         PSV_ResetStructure();
          return;
       }
       
@@ -2327,6 +2350,7 @@ if(PSV_CheckRetest(1, psv_fresh_low, psv_fresh_high))
          psv_signal_bar_time = 0;
          psv_waited = 0;
          psv_pending_hold_check = false;
+         PSV_ResetStructure();
          return;
       }
       
@@ -2339,6 +2363,7 @@ if(PSV_CheckRetest(1, psv_fresh_low, psv_fresh_high))
          psv_signal_bar_time = 0;
          psv_waited = 0;
          psv_pending_hold_check = false;
+         PSV_ResetStructure();
          return;
       }
       
@@ -2353,6 +2378,7 @@ if(PSV_CheckRetest(1, psv_fresh_low, psv_fresh_high))
             psv_signal_bar_time = 0;
             psv_waited = 0;
             psv_pending_hold_check = false;
+            PSV_ResetStructure();
             return;
          }
          
@@ -2366,6 +2392,7 @@ if(!PSV_RequireRetest)
    psv_signal_bar_time = 0;
    psv_waited = 0;
    psv_pending_hold_check = false;
+   PSV_ResetStructure();
    ExecuteSellSignal();
    return;
 }
@@ -2380,6 +2407,7 @@ if(PSV_CheckRetest(-1, psv_fresh_low, psv_fresh_high))
    psv_signal_bar_time = 0;
    psv_waited = 0;
    psv_pending_hold_check = false;
+   PSV_ResetStructure();
    ExecuteSellSignal();
    return;
 }}
@@ -2401,6 +2429,7 @@ if(PSV_CheckRetest(-1, psv_fresh_low, psv_fresh_high))
                psv_state = PSV_IDLE;
                psv_signal_bar_time = 0;
                psv_waited = 0;
+               PSV_ResetStructure();
                return;
             }
             
@@ -2416,6 +2445,7 @@ if(PSV_CheckRetest(-1, psv_fresh_low, psv_fresh_high))
                psv_signal_bar_time = 0;
                psv_waited = 0;
                psv_pending_hold_check = false;
+               PSV_ResetStructure();
                ExecuteSellSignal();
                return;
             }
@@ -3283,17 +3313,22 @@ void CheckForSignals()
             psv_signal_bar_time = 0;
             psv_waited = 0;
             psv_pending_hold_check = false;
+            PSV_ResetStructure();
             if(PSV_EnableLogs)
                Print("PSV CANCEL reason=new BUY signal cancels pending SELL");
          }
          
          // Set WAIT_BUY state
          datetime bar1Time = iTime(_Symbol, _Period, 1);
+         int swingIdx = PSV_RecentSwingHighIndex(2, PSV_SwingLookback);
          psv_state = PSV_WAIT_BUY;
          psv_signal_bar_time = bar1Time;
          psv_waited = 0;
          psv_dir = 1;
          psv_pending_hold_check = false;
+         psv_structure_shift = swingIdx;
+         psv_structure_time = (swingIdx >= 0) ? iTime(_Symbol, _Period, swingIdx) : 0;
+         psv_structure_level = (swingIdx >= 0) ? iHigh(_Symbol, _Period, swingIdx) : 0.0;
          
          if(PSV_EnableLogs)
             Print("PSV WAIT BUY");
@@ -3366,17 +3401,22 @@ void CheckForSignals()
             psv_signal_bar_time = 0;
             psv_waited = 0;
             psv_pending_hold_check = false;
+            PSV_ResetStructure();
             if(PSV_EnableLogs)
                Print("PSV CANCEL reason=new SELL signal cancels pending BUY");
          }
          
          // Set WAIT_SELL state
          datetime bar1Time = iTime(_Symbol, _Period, 1);
+         int swingIdx = PSV_RecentSwingLowIndex(2, PSV_SwingLookback);
          psv_state = PSV_WAIT_SELL;
          psv_signal_bar_time = bar1Time;
          psv_waited = 0;
          psv_dir = -1;
          psv_pending_hold_check = false;
+         psv_structure_shift = swingIdx;
+         psv_structure_time = (swingIdx >= 0) ? iTime(_Symbol, _Period, swingIdx) : 0;
+         psv_structure_level = (swingIdx >= 0) ? iLow(_Symbol, _Period, swingIdx) : 0.0;
          
          if(PSV_EnableLogs)
             Print("PSV WAIT SELL");
