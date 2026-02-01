@@ -4173,10 +4173,11 @@ void ManageTrades()
             {
                if(positionInfo.SelectByTicket(ticket2))
                {
+                  string posComment2 = positionInfo.Comment();
                   double currentSL = positionInfo.StopLoss();
                   // Safety: never worsen SL (BUY: newSL >= currentSL, SELL: newSL <= currentSL)
                   bool slOK = (batches[i].direction == 1) ? (newSL >= currentSL) : (newSL <= currentSL);
-                  if(slOK && MGT_MinBarsAfterEntryOK(comment2))
+                  if(slOK && MGT_MinBarsAfterEntryOK(posComment2))
                   {
                      if(trade.PositionModify(ticket2, newSL, batches[i].tp2))
                      {
@@ -4206,6 +4207,7 @@ void ManageTrades()
             {
                if(positionInfo.SelectByTicket(ticket3))
                {
+                  string posComment3 = positionInfo.Comment();
                   double currentSL = positionInfo.StopLoss();
                   // Safety: never worsen SL (BUY: newSL >= currentSL, SELL: newSL <= currentSL)
                   bool slOK = (batches[i].direction == 1) ? (newSL >= currentSL) : (newSL <= currentSL);
@@ -4219,7 +4221,7 @@ void ManageTrades()
                      slOK = false;  // Block the modification
                   }
                   
-                  if(slOK && MGT_MinBarsAfterEntryOK(comment3))
+                  if(slOK && MGT_MinBarsAfterEntryOK(posComment3))
                   {
                      if(Move_TP3_To_BE_After_TP1 && !MGT_Lock_TP3_OnlyAfter_TP2)
                      {
@@ -4275,6 +4277,7 @@ void ManageTrades()
                {
                   if(positionInfo.SelectByTicket(ticket3))
                   {
+                     string posComment3 = positionInfo.Comment();
                      double currentSL = positionInfo.StopLoss();
                      double beBuffer = MathMax(Breakeven_Buffer_Points * point, spreadPoints * Breakeven_Buffer_Multiplier * point);
                      double lockBuffer = MathMax(Profit_Lock_Buffer_Points * point, spreadPoints * Profit_Lock_Buffer_Multiplier * point);
@@ -4299,7 +4302,7 @@ void ManageTrades()
                      if(IsTP3RunnerProtectionBlocked(comment3, newSL, batches[i].tp2, tolerance))
                         slOK = false;
 
-                     if(slOK && tp1Confirmed && followThroughOK && MGT_MinBarsAfterEntryOK(comment3))
+                     if(slOK && tp1Confirmed && followThroughOK && MGT_MinBarsAfterEntryOK(posComment3))
                      {
                         if(trade.PositionModify(ticket3, newSL, batches[i].tp3))
                         {
